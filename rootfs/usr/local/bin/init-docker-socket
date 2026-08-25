@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Make the bind-mounted host Docker socket usable by the container user.
+#
+# Run as root (the devcontainer postStartCommand does this via sudo). The
+# socket's ownership comes from the host and cannot be known at build time:
+# Docker Desktop presents it as root:root, while a Linux host presents it owned
+# by the host's docker group, whose gid rarely exists in this image.
+
+set -euo pipefail
+
+sock=${DOCKER_SOCKET:-/var/run/docker.sock}
+user=${SUDO_USER:-${USER:-dev}}
+
+if [ ! -S "$sock" ]; then
+  echo "no socket at $sock; nothing to do (docker CLI will have no daemon)" >&2
+  exit 0
+fi
+
+gid=$(stat -c '%g' "$sock")
+
+if [ "$gid" = "0" ]; then
+  # Docker Desktop case: give the socket to a group the user is already in.
+  getent group docker >/dev/null || groupadd --system docker
+  id -nG "$user" | tr ' ' '\n' | grep -qx docker || usermod -aG docker "$user"
+  chgrp docker "$sock"
+  chmod 0660 "$sock"
+  echo "socket regrouped to docker; $user is a member"
+  exit 0
+fi
+
+# Linux host case: adopt whatever gid the socket already carries.
+group=$(getent group "$gid" | cut -d: -f1 || true)
+if [ -z "$group" ]; then
+  group=docker-host
+  groupadd --gid "$gid" "$group"
+fi
+id -nG "$user" | tr ' ' '\n' | grep -qx "$group" || usermod -aG "$group" "$user"
+echo "$user added to group $group (gid $gid) for $sock"

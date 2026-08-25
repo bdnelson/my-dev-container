@@ -1,0 +1,21 @@
+ignored:
+  # DL3008 wants every apt package pinned to an exact version. Debian package
+  # versions are pinned by the base image tag instead; pinning them individually
+  # here would break the image on every Debian point release, which is where the
+  # security updates come from.
+  - DL3008
+
+  # DL3003 wants WORKDIR instead of cd. The cd calls are inside heredoc shell
+  # scripts, where WORKDIR is not available.
+  - DL3003
+
+  # DL3064 treats any ARG whose name matches USER* as a credential. USERNAME,
+  # USER_UID, and USER_GID are the conventional devcontainer build args for the
+  # container user; no secret is involved.
+  - DL3064
+
+  # DL4006 wants pipefail set before a piped RUN. The one pipe that matters
+  # (the Claude Code installer) runs under `set -eu` in its own shell.
+  - DL4006
+
+failure-threshold: warning

@@ -1,0 +1,12 @@
+.DS_Store
+
+# Scratch directory used by bin/update-requirements.sh
+/.uv-compile/
+
+# Build outputs
+/sbom.spdx.json
+
+# Build-time and runtime CA certificates. See certs/README.md.
+/certs/*
+!/certs/.keep
+!/certs/README.md

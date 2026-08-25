@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Print what is installed and the idioms that are easy to forget.
+
+set -euo pipefail
+
+ver() {
+  # ver <label> <command...> — prints a version line, or "missing" if absent.
+  local label=$1; shift
+  if command -v "$1" >/dev/null 2>&1; then
+    printf '  %-16s %s\n' "$label" "$("$@" 2>&1 | head -1)"
+  else
+    printf '  %-16s missing\n' "$label"
+  fi
+}
+
+cat <<'BANNER'
+my-dev-container
+
+BANNER
+
+echo "Language toolchains"
+ver go go version
+ver rustc rustc --version
+ver cargo cargo --version
+ver node node --version
+ver npm npm --version
+
+echo
+echo "Kubernetes"
+ver kubectl kubectl version --client=true
+ver stern stern --version
+ver k9s k9s version -s
+
+echo
+echo "Containers"
+ver docker docker --version
+ver buildx docker buildx version
+ver compose docker compose version
+
+echo
+echo "HTTP and editors"
+ver curl curl --version
+ver hurl hurl --version
+ver nvim nvim --version
+ver tmux tmux -V
+
+echo
+echo "Databases"
+ver pgcli pgcli --version
+ver psql psql --version
+ver mycli mycli --version
+ver mysql mysql --version
+ver redis-cli redis-cli --version
+
+echo
+echo "Messaging and cloud"
+ver nats nats --version
+ver aws aws --version
+ver openssl openssl version
+ver claude claude --version
+
+cat <<'USAGE'
+
+Idioms
+
+  Node          nvm ls / nvm install 22 / nvm use 22   (default is preinstalled)
+  Go            go install ./...  installs into $GOPATH/bin, already on PATH
+  Rust          cargo install lands in $CARGO_HOME/bin (/usr/local/cargo/bin)
+
+  Postgres      pgcli postgresql://USER@HOST:5432/DB
+  MySQL         mycli -h HOST -u USER -D DB
+  Redis         redis-cli -h HOST -p 6379            (-a "$REDIS_PASSWORD" if authed)
+  NATS          nats --server nats://HOST:4222 sub '>'
+  Hurl          hurl --test --variable base=https://HOST checks.hurl
+
+  DNS check     dig +short HOST
+  TCP check     nc -zv HOST PORT
+  TLS chain     openssl s_client -connect HOST:443 -servername HOST </dev/null
+  Capture       tcpdump -i any -nn port 5432
+                Promiscuous mode needs NET_ADMIN: sudo tcpdump ...
+                or pass -p to capture without it.
+
+  Docker        talks to the host daemon over the mounted socket. If it reports
+                a permission error, run: sudo init-docker-socket
+USAGE

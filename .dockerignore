@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!versions.env
+!checksums.txt
+!requirements.txt
+!aws-cli-public-key.asc
+!rootfs/
+!certs/
+certs/README.md

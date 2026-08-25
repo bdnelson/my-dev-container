@@ -1,0 +1,72 @@
+// Devcontainer definition. See https://containers.dev/implementors/json_reference/
+//
+// The image carries every tool; no Features are used, so a rebuild pulls
+// nothing that is not pinned in versions.env.
+{
+  "name": "my-dev-container",
+
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": {
+      // Match these to the host user when bind mounts would otherwise leave
+      // root-owned files in the workspace. Docker Desktop on macOS maps uids
+      // for you, so the defaults are fine there.
+      "USERNAME": "dev",
+      "USER_UID": "1000",
+      "USER_GID": "1000"
+    }
+  },
+
+  "runArgs": [
+    // tcpdump and mtr need these even though the binaries carry file
+    // capabilities; the container has to be granted the capability first.
+    "--cap-add=NET_RAW",
+    "--cap-add=NET_ADMIN",
+    // Reap zombies from long-lived dev processes.
+    "--init"
+  ],
+
+  "mounts": [
+    // docker-outside-of-docker: the CLI in this image drives the host daemon.
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+
+    // Host credentials and config. Remove any of these you would rather keep
+    // out of the container.
+    "source=${localEnv:HOME}/.kube,target=/home/dev/.kube,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.aws,target=/home/dev/.aws,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude,target=/home/dev/.claude,type=bind,consistency=cached",
+
+    // Shell history survives a rebuild. See HISTFILE in containerEnv.
+    "source=my-dev-container-history,target=/commandhistory,type=volume"
+  ],
+
+  "containerEnv": {
+    "TZ": "US/Eastern",
+    "HISTFILE": "/commandhistory/.bash_history"
+  },
+
+  "remoteUser": "dev",
+
+  // The socket's group ownership comes from the host and is only knowable at
+  // run time.
+  "postStartCommand": "sudo /usr/local/bin/init-docker-socket",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "rust-lang.rust-analyzer",
+        "anthropic.claude-code",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "go.gopath": "/home/dev/go",
+        "go.goroot": "/usr/local/go"
+      }
+    }
+  }
+}
