@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Install operator-supplied root CAs into the container trust store at run time.
+#
+# The image is built in public CI and ships trusting only the public roots. A
+# workstation behind an intercepting proxy supplies its root when the container
+# starts instead, so the private certificate never lands in a published layer.
+#
+# Run as root. The entrypoint and the devcontainer postStartCommand both reach
+# it through sudo; run `sudo init-ca-certs` by hand after changing the source.
+#
+# Sources, both optional and both applied when present:
+#
+#   $CA_CERT_SECRET    a PEM file, or a directory of them. Defaults to
+#                      /run/secrets/ca-certificates, which is where a Compose
+#                      `secrets:` entry lands and a convenient target for a
+#                      plain bind mount.
+#   $CA_CERT_PEM_B64   a base64-encoded PEM bundle, for contexts that can only
+#                      pass environment variables. Visible in `docker inspect`,
+#                      so prefer the file.
+
+set -euo pipefail
+
+SECRET=${CA_CERT_SECRET:-/run/secrets/ca-certificates}
+
+# Injected certificates get their own directory rather than sharing
+# /usr/local/share/ca-certificates/extra. This set is rebuilt from scratch on
+# every run, so keeping it separate means doing that cannot remove a root that
+# something else — a derived image, or a package — put in the usual place.
+INJECTED=/usr/local/share/ca-certificates/injected
+
+if [ "$(id -u)" != "0" ]; then
+  echo "init-ca-certs: must run as root (try: sudo init-ca-certs)" >&2
+  exit 1
+fi
+
+# --fresh rebuilds /etc/ssl/certs from scratch, which is what makes a removed
+# certificate actually stop being trusted. Its rehash pass then warns about
+# ca-certificates.crt itself on every run, because the bundle it just wrote
+# holds more than one certificate. That is noise on every container start, so
+# the output is held back and only shown if the command fails.
+refresh_store() {
+  local log
+  if ! log=$(update-ca-certificates --fresh 2>&1); then
+    printf '%s\n' "$log" >&2
+    echo "init-ca-certs: update-ca-certificates failed" >&2
+    return 1
+  fi
+}
+
+staging=$(mktemp -d)
+trap 'rm -rf "$staging"' EXIT
+bundle="$staging/bundle.pem"
+: >"$bundle"
+
+gather() {
+  # gather <path> — append a PEM file, or every file in a directory, to the
+  # staging bundle. The glob skips dotfiles, which also skips the ..data
+  # indirection a Kubernetes secret mount would introduce.
+  local path=$1 f
+  if [ -d "$path" ]; then
+    for f in "$path"/*; do
+      [ -f "$f" ] || continue
+      cat "$f" >>"$bundle"
+      printf '\n' >>"$bundle"
+    done
+  elif [ -f "$path" ]; then
+    cat "$path" >>"$bundle"
+    printf '\n' >>"$bundle"
+  fi
+}
+
+gather "$SECRET"
+
+if [ -n "${CA_CERT_PEM_B64:-}" ]; then
+  if ! printf '%s' "$CA_CERT_PEM_B64" | tr -d '[:space:]' | base64 -d >>"$bundle"; then
+    echo "init-ca-certs: CA_CERT_PEM_B64 is not valid base64; ignoring it" >&2
+  fi
+  printf '\n' >>"$bundle"
+fi
+
+had_certs=0
+if [ -d "$INJECTED" ] && [ -n "$(ls -A "$INJECTED" 2>/dev/null)" ]; then
+  had_certs=1
+fi
+
+if ! grep -q -- '-----BEGIN CERTIFICATE-----' "$bundle"; then
+  if [ "$had_certs" = "1" ]; then
+    # The source went away. Drop what a previous run installed rather than
+    # leaving a stale root trusted.
+    rm -rf "$INJECTED"
+    refresh_store
+    echo "init-ca-certs: no certificates supplied; removed previously injected roots"
+  else
+    echo "init-ca-certs: no certificates at ${SECRET}; using the public roots only"
+  fi
+  exit 0
+fi
+
+rm -rf "$INJECTED"
+mkdir -p "$INJECTED"
+
+# update-ca-certificates hashes and symlinks one certificate per file, so a
+# multi-certificate bundle is split rather than installed whole.
+awk -v dir="$INJECTED" '
+  /-----BEGIN CERTIFICATE-----/ { n++; inside = 1; out = sprintf("%s/injected-%02d.crt", dir, n) }
+  inside                        { print > out }
+  /-----END CERTIFICATE-----/   { if (inside) { close(out); inside = 0 } }
+' "$bundle"
+
+installed=0
+for crt in "$INJECTED"/*.crt; do
+  [ -f "$crt" ] || continue
+  if ! subject=$(openssl x509 -in "$crt" -noout -subject 2>/dev/null); then
+    echo "init-ca-certs: $(basename "$crt") is not a parseable certificate; dropping it" >&2
+    rm -f "$crt"
+    continue
+  fi
+  if ! openssl x509 -in "$crt" -noout -checkend 0 >/dev/null 2>&1; then
+    echo "init-ca-certs: warning, ${subject#subject=} has expired" >&2
+  fi
+  echo "init-ca-certs: trusting ${subject#subject=}"
+  installed=$((installed + 1))
+done
+
+if [ "$installed" = "0" ]; then
+  rm -rf "$INJECTED"
+  if [ "$had_certs" = "1" ]; then
+    refresh_store
+  fi
+  echo "init-ca-certs: nothing usable in the supplied material" >&2
+  exit 1
+fi
+
+chmod 0644 "$INJECTED"/*.crt
+
+# Go reads the bundle this regenerates directly, and NODE_EXTRA_CA_CERTS,
+# REQUESTS_CA_BUNDLE, and AWS_CA_BUNDLE all point at the same file.
+refresh_store
+
+echo "init-ca-certs: ${installed} certificate(s) installed into /etc/ssl/certs"

@@ -6,11 +6,15 @@ to day, so that a project checkout needs nothing installed on the host beyond
 Docker and an editor.
 
 It is a sibling of `debug-toolbox`, not a variant of it. That image is a
-cluster-side troubleshooting shell that must stay small and must trust only the
-public roots; this one is a workstation development environment with compilers,
-a writable toolchain, sudo, and the corporate proxy root in its trust store.
-The build machinery is the same in both, and the two overlap in the tools they
-share.
+cluster-side troubleshooting shell that must stay small; this one is a
+workstation development environment with compilers, a writable toolchain, and
+sudo. The build machinery is the same in both, and the two overlap in the tools
+they share.
+
+Neither image carries a private certificate. This one needs the corporate proxy
+root to be useful on a workstation, so it takes it at container start instead of
+at build time, which is what lets the image be built and published from public
+CI. See [Corporate proxy](#corporate-proxy).
 
 ## What is inside
 
@@ -37,9 +41,22 @@ those trees into a second layer and add close to a gigabyte.
 
 ## Using it
 
+The image is published to GitHub Container Registry, so the usual path is to
+pull rather than build:
+
+```sh
+docker pull ghcr.io/bdnelson/my-dev-container:latest
+```
+
 With VS Code, open the folder you want to work in and point it at this
 definition, or copy `.devcontainer/devcontainer.json` into that project and
-change `build` to `"image": "my-dev-container:dev"` after building once.
+change `build` to `"image": "ghcr.io/bdnelson/my-dev-container:latest"`.
+
+Before the first run behind the proxy, export the root once:
+
+```sh
+make cert-export      # writes ~/.config/ca-certificates/zscaler-root.crt
+```
 
 With the devcontainer CLI:
 
@@ -92,10 +109,33 @@ contexts get the default Node from `/usr/local/nvm/current/bin` on `PATH`.
 
 ## Corporate proxy
 
-TLS to several upstream hosts is intercepted, so builds and the tools inside the
-container need the proxy root. Drop it in `certs/` as a `.crt` file; the build
-installs it into every builder stage and into the runtime image. See
-`certs/README.md`. An empty `certs/` is valid and the build skips the step.
+TLS to several upstream hosts is intercepted, so both the build and the tools
+inside the running container need the proxy root. The two get it from different
+places on purpose.
+
+**At run time**, the root is injected. The image ships trusting only the public
+roots; the entrypoint runs `init-ca-certs`, which reads a PEM file, or a
+directory of them, from `/run/secrets/ca-certificates` (override with
+`$CA_CERT_SECRET`, or pass `$CA_CERT_PEM_B64` where no file can be mounted),
+splits it, validates it, and regenerates the trust store. `devcontainer.json`
+bind-mounts `~/.config/ca-certificates` read-only onto that path, and `make
+shell` mounts it when it exists. With nothing mounted the step is a no-op, so
+the same image works on and off the network. Run `sudo init-ca-certs` inside a
+running container after changing the source.
+
+Node, requests-based Python tools, and botocore each keep their own root list
+rather than reading the OpenSSL store, so `NODE_EXTRA_CA_CERTS`,
+`REQUESTS_CA_BUNDLE`, and `AWS_CA_BUNDLE` are all pointed at
+`/etc/ssl/certs/ca-certificates.crt`, the bundle `update-ca-certificates`
+regenerates.
+
+**At build time**, only a local build needs anything: drop the root in `certs/`
+as a `.crt` file and the builder stages install it so they can reach the
+upstream download hosts. It never reaches the runtime image. CI builds with the
+directory empty, and an empty `certs/` is valid anywhere.
+
+`certs/README.md` has the export commands and the Compose and `docker run`
+forms.
 
 ## Pinning and updates
 
@@ -126,6 +166,22 @@ make scan      # trivy, HIGH/CRITICAL, fixed only
 make sbom      # syft, SPDX JSON
 ```
 
+`make test` also generates a throwaway self-signed CA, mounts it as the
+run-time secret, and asserts both that it ends up trusted and that the image
+itself carries no certificates of its own.
+
+## Publishing
+
+`.github/workflows/build.yml` builds each architecture on a native runner
+(`ubuntu-24.04` and `ubuntu-24.04-arm`, rather than arm64 under QEMU, which
+takes hours for the Rust, Node, and pip stages), runs the smoke test against
+each, pushes both by digest, and only then stitches them into a tagged manifest
+at `ghcr.io/bdnelson/my-dev-container`. A pull request builds and smoke-tests
+both architectures without publishing anything.
+
+Tags are `latest` and `edge` on the default branch, the version and `major.minor`
+for a `v*` tag, and the full commit SHA for every build.
+
 ## Layout
 
 ```
@@ -135,6 +191,7 @@ checksums.txt           generated; verified by the fetch stage
 requirements.txt        generated; hash-pinned pgcli/mycli
 bin/                    pin maintenance and the smoke test
 rootfs/                 files copied verbatim into the image
-certs/                  proxy roots (gitignored except README/.keep)
+certs/                  build-time proxy roots (gitignored except README/.keep)
 .devcontainer/          devcontainer.json
+.github/workflows/      multi-arch build and publish to GHCR
 ```

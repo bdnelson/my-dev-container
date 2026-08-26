@@ -12,6 +12,12 @@ BUILD_ARGS = \
 	--build-arg VCS_REF=$(VCS_REF) \
 	--build-arg BUILD_DATE=$(BUILD_DATE)
 
+# Root CAs handed to the container at run time rather than baked into the image.
+# Mounted only when the directory exists, so this is a no-op off the corporate
+# network. See certs/README.md.
+CA_CERT_DIR   ?= $(HOME)/.config/ca-certificates
+CA_CERT_MOUNT  = $(if $(wildcard $(CA_CERT_DIR)),-v "$(CA_CERT_DIR):/run/secrets/ca-certificates:ro")
+
 .PHONY: help
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -40,7 +46,7 @@ test: build ## Run the smoke test against the freshly built image
 .PHONY: lint
 lint: ## Lint the Dockerfile and shell scripts
 	@command -v hadolint >/dev/null && hadolint Dockerfile || echo "hadolint not installed, skipping"
-	@command -v shellcheck >/dev/null && shellcheck bin/*.sh rootfs/usr/local/bin/devbox-help rootfs/usr/local/bin/init-docker-socket || echo "shellcheck not installed, skipping"
+	@command -v shellcheck >/dev/null && shellcheck bin/*.sh rootfs/usr/local/bin/* || echo "shellcheck not installed, skipping"
 
 .PHONY: scan
 scan: build ## Scan the built image for vulnerabilities
@@ -73,5 +79,16 @@ check-upstream: ## Report upstream releases newer than the pins in versions.env
 shell: build ## Start a throwaway shell in the image, with the repo at /work
 	docker run --rm -it \
 		--cap-add=NET_RAW --cap-add=NET_ADMIN \
+		$(CA_CERT_MOUNT) \
 		-v "$(CURDIR):/work" -w /work \
 		$(IMAGE):$(VERSION) bash
+
+.PHONY: cert-export
+cert-export: ## macOS only: export the Zscaler root from the System keychain to $(CA_CERT_DIR)
+	@mkdir -p "$(CA_CERT_DIR)"
+	security find-certificate -a -c "Zscaler" -p /Library/Keychains/System.keychain \
+		> "$(CA_CERT_DIR)/zscaler-root.crt"
+	@test -s "$(CA_CERT_DIR)/zscaler-root.crt" \
+		|| { echo "no Zscaler certificate found in the System keychain"; exit 1; }
+	@openssl x509 -in "$(CA_CERT_DIR)/zscaler-root.crt" -noout -subject -enddate
+	@echo "wrote $(CA_CERT_DIR)/zscaler-root.crt"

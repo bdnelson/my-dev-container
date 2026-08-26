@@ -1,0 +1,173 @@
+# Build and publish the devcontainer image from public CI.
+#
+# The image carries no private certificates, which is what makes this possible:
+# the corporate proxy root is injected when the container starts on a
+# workstation, not baked into a layer. See certs/README.md.
+#
+# Each architecture is built on a native runner and pushed by digest; a final
+# job stitches the two digests into one tagged manifest. Building arm64 under
+# QEMU on an amd64 runner works but takes hours for the Rust, Node, and pip
+# stages, so the arm64 job uses GitHub's ubuntu-24.04-arm runner instead. Those
+# runners are free for public repositories and billed for private ones.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+
+      - name: shellcheck
+        run: shellcheck bin/*.sh rootfs/usr/local/bin/*
+
+  build:
+    needs: lint
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive names
+        id: names
+        run: |
+          echo "image=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >>"$GITHUB_OUTPUT"
+          echo "arch=$(echo '${{ matrix.platform }}' | cut -d/ -f2)" >>"$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A pull request builds and tests only; nothing is published until the
+      # change is on main. Anything published goes out untagged, by digest, and
+      # is only given a tag by the merge job after the smoke test has passed.
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.names.outputs.date }}
+          cache-from: type=gha,scope=${{ steps.names.outputs.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.names.outputs.arch }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ github.event_name == 'pull_request' && 'my-dev-container:ci' || '' }}
+          provenance: false
+          outputs: ${{ github.event_name != 'pull_request' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.names.outputs.image) || '' }}
+
+      - name: Smoke test
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            image=my-dev-container:ci
+          else
+            image='${{ steps.names.outputs.image }}@${{ steps.build.outputs.digest }}'
+            docker pull "$image"
+          fi
+          IMAGE="$image" ./bin/smoke-test.sh
+
+      # The merge job needs every digest, and artifact names have to be unique
+      # per job, so each one is written to a file named after its digest.
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ steps.names.outputs.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Derive image name
+        id: names
+        run: echo "image=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.names.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+
+      - name: Create the manifest list
+        working-directory: /tmp/digests
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ steps.names.outputs.image }}@sha256:%s ' *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect '${{ steps.names.outputs.image }}:${{ steps.meta.outputs.version }}'

@@ -325,15 +325,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Unlike a cluster-side image, this one runs on a workstation behind the same
-# intercepting proxy at runtime: go mod download, cargo, npm, and claude all
-# make their own TLS connections from inside the container. The extra roots are
-# therefore installed here as well, not just in the builder stages.
-COPY certs/ /usr/local/share/ca-certificates/extra/
-RUN set -eu; \
-    if ls /usr/local/share/ca-certificates/extra/*.crt >/dev/null 2>&1; then \
-      update-ca-certificates; \
-    fi
+# The runtime image deliberately does NOT bake in the proxy roots, so that it
+# can be built and published from public CI without a private certificate ever
+# entering a layer. It still needs them: on a workstation behind an intercepting
+# proxy, go mod download, cargo, npm, and claude all open their own TLS
+# connections from inside the container.
+#
+# They are supplied when the container starts instead. The entrypoint runs
+# init-ca-certs, which reads /run/secrets/ca-certificates (a PEM file or a
+# directory of them, mounted from the host or supplied as a Compose secret) and
+# regenerates the trust store. See certs/README.md.
+RUN mkdir -p /usr/local/share/ca-certificates/injected
 
 # The user is created before the toolchains are copied in so that ownership can
 # be set by COPY --chown. A `chown -R` afterwards would rewrite every file into
@@ -374,6 +376,8 @@ ENV TZ=US/Eastern \
     CARGO_HOME=/usr/local/cargo \
     NVM_DIR=/usr/local/nvm \
     NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     PATH=/home/${USERNAME}/.local/bin:/home/${USERNAME}/go/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/nvm/current/bin:/opt/dbcli/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # A devcontainer terminal is an interactive non-login shell, which reads
@@ -394,20 +398,50 @@ RUN echo '. /etc/profile.d/devbox.sh' >> /etc/bash.bashrc
 # iputils-ping with its own file capabilities.
 RUN setcap cap_net_raw+eip /usr/bin/tcpdump
 
-USER ${USERNAME}
-WORKDIR /home/${USERNAME}
-ENV HOME=/home/${USERNAME}
-
 # Claude Code installs under $HOME: the launcher in ~/.local/bin, versions in
 # ~/.local/share/claude. Credentials and settings live in ~/.claude, which is
 # a separate directory and can be bind-mounted from the host without hiding the
 # binary. The installer verifies its download against a signed release
 # manifest, so there is no entry for it in checksums.txt.
+#
+# This is the only step in the runtime stage that opens a network connection, so
+# it is the only one that needs the extra roots when the image is built locally
+# from behind an intercepting proxy. They come in as a bind mount from the fetch
+# stage rather than a COPY, and are installed and removed inside this one RUN,
+# because either a COPY or a later `rm` would leave them readable in a layer of
+# the published image. Nothing is needed in CI, where the mount is empty.
+#
+# Run as root so update-ca-certificates works, dropping to the container user
+# for the install itself, which writes into that user's home directory.
 COPY versions.env /tmp/versions.env
-RUN set -eu; \
-    . /tmp/versions.env; \
-    curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_VERSION}"; \
-    "${HOME}/.local/bin/claude" --version
+RUN --mount=type=bind,from=fetch,source=/usr/local/share/ca-certificates/extra,target=/tmp/build-certs <<'EOF'
+set -eu
+. /tmp/versions.env
+
+extra=/usr/local/share/ca-certificates/extra
+if ls /tmp/build-certs/*.crt >/dev/null 2>&1; then
+  mkdir -p "$extra"
+  cp /tmp/build-certs/*.crt "$extra/"
+  update-ca-certificates
+fi
+
+home=/home/${USERNAME}
+runuser -u "${USERNAME}" -- env HOME="$home" bash -c \
+  'curl -fsSL https://claude.ai/install.sh | bash -s "$1"' _ "${CLAUDE_VERSION}"
+runuser -u "${USERNAME}" -- env HOME="$home" "$home/.local/bin/claude" --version
+
+rm -rf "$extra"
+update-ca-certificates --fresh
+EOF
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}
+ENV HOME=/home/${USERNAME}
+
+# The entrypoint installs any run-time-supplied root CAs before handing off, so
+# that tooling in the container trusts the proxy on a workstation that sits
+# behind one. It is a no-op when nothing is mounted.
+ENTRYPOINT ["/usr/local/bin/devbox-entrypoint"]
 
 # Devcontainers normally override this, but a plain `docker run` of the image
 # should stay up so it can be exec'd into.

@@ -6,6 +6,9 @@
 # Build outputs
 /sbom.spdx.json
 
+# Throwaway CA staged by bin/smoke-test.sh for the run-time injection check
+/.smoke-ca.*
+
 # Build-time and runtime CA certificates. See certs/README.md.
 /certs/*
 !/certs/.keep

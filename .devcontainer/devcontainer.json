@@ -31,6 +31,18 @@
     // docker-outside-of-docker: the CLI in this image drives the host daemon.
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
 
+    // The corporate proxy root, injected at run time rather than baked into the
+    // image, so the image itself can be built and published from public CI.
+    // Create the host directory and drop the PEM in it before first use:
+    //
+    //   mkdir -p ~/.config/ca-certificates
+    //   security find-certificate -a -c "Zscaler" -p /Library/Keychains/System.keychain \
+    //     > ~/.config/ca-certificates/zscaler-root.crt
+    //
+    // An empty or absent directory is fine; the container then trusts only the
+    // public roots.
+    "source=${localEnv:HOME}/.config/ca-certificates,target=/run/secrets/ca-certificates,type=bind,readonly",
+
     // Host credentials and config. Remove any of these you would rather keep
     // out of the container.
     "source=${localEnv:HOME}/.kube,target=/home/dev/.kube,type=bind,consistency=cached",
@@ -48,9 +60,15 @@
 
   "remoteUser": "dev",
 
-  // The socket's group ownership comes from the host and is only knowable at
-  // run time.
-  "postStartCommand": "sudo /usr/local/bin/init-docker-socket",
+  // Both of these reconcile things that are only knowable at run time: the
+  // socket's group ownership comes from the host, and the proxy root comes from
+  // the mount above. The image entrypoint also runs init-ca-certs, but a
+  // devcontainer runtime may replace the entrypoint, so it is repeated here.
+  // Running it twice is harmless.
+  "postStartCommand": {
+    "docker-socket": "sudo /usr/local/bin/init-docker-socket",
+    "ca-certs": "sudo /usr/local/bin/init-ca-certs"
+  },
 
   "customizations": {
     "vscode": {

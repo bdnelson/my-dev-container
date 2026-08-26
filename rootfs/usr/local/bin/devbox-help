@@ -82,4 +82,8 @@ Idioms
 
   Docker        talks to the host daemon over the mounted socket. If it reports
                 a permission error, run: sudo init-docker-socket
+
+  Proxy root    injected at start from /run/secrets/ca-certificates, not baked
+                into the image. If TLS fails with an unknown-authority error,
+                check the mount and run: sudo init-ca-certs
 USAGE

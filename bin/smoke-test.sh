@@ -101,6 +101,69 @@ else
 fi
 
 echo
+echo "checking run-time CA injection"
+# The image ships trusting only the public roots; the proxy root is mounted at
+# start. A throwaway self-signed CA stands in for it here, so the test needs no
+# access to the real one.
+# Staged inside the repo rather than under $TMPDIR: Docker Desktop on macOS does
+# not share /var/folders by default, and an unshared bind mount source turns
+# into an empty directory in the container rather than an error.
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ca_dir=$(mktemp -d "$repo_root/.smoke-ca.XXXXXX")
+trap 'rm -rf "$ca_dir"' EXIT
+if openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+     -subj "/CN=my-dev-container smoke test CA" \
+     -keyout "$ca_dir/key.pem" -out "$ca_dir/smoke-test-ca.crt" >/dev/null 2>&1; then
+  rm -f "$ca_dir/key.pem"
+
+  # The entrypoint runs init-ca-certs before the command, so the certificate is
+  # already in the bundle by the time this looks. The bundle is concatenated PEM
+  # with no plaintext subjects, hence the decode rather than a grep over it.
+  if docker run --rm \
+       -v "$ca_dir:/run/secrets/ca-certificates:ro" \
+       "$IMAGE" \
+       bash -c 'openssl crl2pkcs7 -nocrl -certfile /etc/ssl/certs/ca-certificates.crt \
+                  | openssl pkcs7 -print_certs -noout \
+                  | grep -q "my-dev-container smoke test CA"' \
+       2>/dev/null; then
+    echo "  ok    mounted CA is trusted after the entrypoint runs"
+    pass=$((pass + 1))
+  else
+    echo "  FAIL  mounted CA did not reach /etc/ssl/certs/ca-certificates.crt"
+    fail=$((fail + 1))
+  fi
+
+  # openssl reads the same store, and the certificate has to be individually
+  # hashed there rather than only appended to the bundle.
+  if docker run --rm \
+       -v "$ca_dir:/run/secrets/ca-certificates:ro" \
+       "$IMAGE" \
+       bash -c 'ls /etc/ssl/certs/*.0 >/dev/null && openssl verify -CApath /etc/ssl/certs /usr/local/share/ca-certificates/injected/injected-01.crt' \
+       >/dev/null 2>&1; then
+    echo "  ok    mounted CA is hashed into /etc/ssl/certs"
+    pass=$((pass + 1))
+  else
+    echo "  FAIL  mounted CA was not hashed into /etc/ssl/certs"
+    fail=$((fail + 1))
+  fi
+else
+  echo "  SKIP  openssl on this host could not generate a test CA"
+fi
+
+echo
+echo "checking the image ships no injected certificates of its own"
+# A published image must trust only the public roots. Anything here would mean a
+# private certificate had been baked into a layer.
+if [ -z "$(docker run --rm --entrypoint /bin/bash "$IMAGE" \
+             -c 'find /usr/local/share/ca-certificates -type f 2>/dev/null')" ]; then
+  echo "  ok    no certificates baked into the image"
+  pass=$((pass + 1))
+else
+  echo "  FAIL  the image carries certificates in /usr/local/share/ca-certificates"
+  fail=$((fail + 1))
+fi
+
+echo
 echo "checking the toolchain roots are writable without sudo"
 # go install, cargo install, and nvm install all write outside $HOME.
 for dir in /usr/local/cargo /usr/local/nvm /home/dev/go/bin /home/dev/.local/bin; do

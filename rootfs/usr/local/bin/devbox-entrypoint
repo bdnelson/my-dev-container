@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Container entrypoint: install any run-time-supplied root CAs, then exec the
+# command.
+#
+# The image ships trusting only the public roots so that it can be built and
+# published from public CI. A workstation behind an intercepting proxy mounts
+# its root at /run/secrets/ca-certificates and this picks it up on start. See
+# init-ca-certs for the accepted sources.
+#
+# The image runs as an unprivileged user with passwordless sudo, so the trust
+# store update goes through sudo. A container started with --user root works
+# too. Set DEVBOX_SKIP_CA_INIT=1 to bypass this entirely.
+
+set -euo pipefail
+
+if [ "${DEVBOX_SKIP_CA_INIT:-0}" != "1" ]; then
+  if [ "$(id -u)" = "0" ]; then
+    /usr/local/bin/init-ca-certs || echo "entrypoint: init-ca-certs failed; continuing" >&2
+  elif sudo -n true 2>/dev/null; then
+    sudo -n /usr/local/bin/init-ca-certs || echo "entrypoint: init-ca-certs failed; continuing" >&2
+  else
+    echo "entrypoint: no root privileges, skipping the trust store update" >&2
+  fi
+fi
+
+# CMD supplies the default, so this is only empty if it was explicitly cleared.
+if [ "$#" -eq 0 ]; then
+  set -- sleep infinity
+fi
+
+exec "$@"

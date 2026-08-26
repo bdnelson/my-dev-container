@@ -14,8 +14,10 @@ ignored:
   # container user; no secret is involved.
   - DL3064
 
-  # DL4006 wants pipefail set before a piped RUN. The one pipe that matters
-  # (the Claude Code installer) runs under `set -eu` in its own shell.
+  # DL4006 wants pipefail set before a piped RUN. The one pipe that matters is
+  # the Claude Code installer, whose exit status is not what the build relies
+  # on: the `claude --version` call on the next line is what fails the build if
+  # the download did not produce a working binary.
   - DL4006
 
 failure-threshold: warning
