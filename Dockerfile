@@ -67,6 +67,10 @@ fetch "stern-${TARGETARCH}" \
   "https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_${TARGETARCH}.tar.gz"
 fetch "k9s-${TARGETARCH}" \
   "https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/k9s_Linux_${TARGETARCH}.tar.gz"
+fetch "kargo-${TARGETARCH}" \
+  "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${TARGETARCH}"
+fetch "jj-${TARGETARCH}" \
+  "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-${RARCH}-unknown-linux-musl.tar.gz"
 fetch "nats-${TARGETARCH}" \
   "https://github.com/nats-io/natscli/releases/download/v${NATS_VERSION}/nats-${NATS_VERSION}-linux-${TARGETARCH}.zip"
 fetch "hurl-${TARGETARCH}" \
@@ -123,6 +127,14 @@ install -m 0755 stern /out/usr/local/bin/stern
 
 unpack k9s
 install -m 0755 k9s /out/usr/local/bin/k9s
+
+# A bare binary, so there is nothing to unpack.
+install -m 0755 "/dl/kargo-${TARGETARCH}" /out/usr/local/bin/kargo
+
+# The tarball carries the licence and readme alongside the binary; only the
+# binary is kept.
+unpack jj
+install -m 0755 jj /out/usr/local/bin/jj
 
 unpack nats
 install -m 0755 "nats-${NATS_VERSION}-linux-${TARGETARCH}/nats" /out/usr/local/bin/nats
@@ -384,6 +396,7 @@ ENV TZ=US/Eastern \
 # /etc/bash.bashrc and never touches /etc/profile.d. Source it from there too,
 # or nvm, the aliases, and the banner only appear under `bash -l`.
 RUN echo '. /etc/profile.d/devbox.sh' >> /etc/bash.bashrc
+RUN echo 'set -o vi' >> /etc/bash.bashrc
 
 # Capturing as a non-root user needs the capability on the binary. NET_RAW
 # alone, deliberately: a file capability that is not in the container's bounding

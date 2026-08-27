@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-TOOLS=(go rustup kubectl stern k9s nats hurl neovim docker buildx compose)
+TOOLS=(go rustup kubectl stern k9s kargo jj nats hurl neovim docker buildx compose)
 # shellcheck disable=SC2034
 NOARCH_TOOLS=(nvm)
 # shellcheck disable=SC2034
@@ -45,6 +45,13 @@ artifact_url() {
       echo "https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_${arch}.tar.gz" ;;
     k9s)
       echo "https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/k9s_Linux_${arch}.tar.gz" ;;
+    kargo)
+      # Published as a bare binary, not an archive.
+      echo "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${arch}" ;;
+    jj)
+      # musl only: upstream publishes no glibc Linux build, and the static
+      # binary runs unchanged on Debian.
+      echo "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-${rarch}-unknown-linux-musl.tar.gz" ;;
     nats)
       echo "https://github.com/nats-io/natscli/releases/download/v${NATS_VERSION}/nats-${NATS_VERSION}-linux-${arch}.zip" ;;
     hurl)

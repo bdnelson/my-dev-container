@@ -30,6 +30,12 @@ echo "Kubernetes"
 ver kubectl kubectl version --client=true
 ver stern stern --version
 ver k9s k9s version -s
+ver kargo kargo version --client
+
+echo
+echo "Version control"
+ver git git --version
+ver jj jj --version
 
 echo
 echo "Containers"
@@ -66,6 +72,11 @@ Idioms
   Node          nvm ls / nvm install 22 / nvm use 22   (default is preinstalled)
   Go            go install ./...  installs into $GOPATH/bin, already on PATH
   Rust          cargo install lands in $CARGO_HOME/bin (/usr/local/cargo/bin)
+
+  Jujutsu       jj git clone URL / jj st / jj new / jj describe -m MSG
+                colocate an existing git checkout with: jj git init --colocate
+  Kargo         kargo login https://KARGO-HOST --sso
+                kargo get stages --project PROJECT
 
   Postgres      pgcli postgresql://USER@HOST:5432/DB
   MySQL         mycli -h HOST -u USER -D DB
