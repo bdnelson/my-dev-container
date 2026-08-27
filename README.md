@@ -21,7 +21,7 @@ CI. See [Corporate proxy](#corporate-proxy).
 | Area | Tools |
 | --- | --- |
 | Languages | Go, Rust (rustup, cargo, clippy, rustfmt, rust-analyzer, rust-src), Node via nvm |
-| Kubernetes | kubectl, k9s, stern, kargo |
+| Kubernetes | kubectl, k9s, stern, kargo, krew (with the oidc-login plugin) |
 | Containers | docker CLI, buildx, compose (against the host daemon) |
 | Version control | git, jj (Jujutsu) |
 | HTTP | curl, wget, hurl, hurlfmt |
@@ -132,8 +132,16 @@ directory cannot hide them, and are owned by `dev` so that `go install`,
 /usr/local/go        GOROOT              /home/dev/go       GOPATH
 /usr/local/cargo     CARGO_HOME          /usr/local/rustup  RUSTUP_HOME
 /usr/local/nvm       NVM_DIR             /usr/local/nvm/current  default Node
+/usr/local/krew      KREW_ROOT           /usr/local/krew/bin     kubectl plugins
 /opt/dbcli           pgcli/mycli venv    /home/dev/.local/bin    claude
 ```
+
+`KREW_ROOT` is set away from krew's own default of `~/.krew` for the same
+reason, and the symlinks krew writes into `$KREW_ROOT/bin` are absolute, so the
+build installs plugins at the path the running container uses rather than
+relocating them afterwards. `kubectl krew install` works without sudo, and
+`kubectl plugin list` picks up anything installed that way because
+`$KREW_ROOT/bin` is on `PATH`.
 
 `nvm` is a shell function; it exists only in shells that source
 `/etc/profile.d/devbox.sh`, which `/etc/bash.bashrc` does. Non-interactive
@@ -184,6 +192,14 @@ during the build:
 - The Node tarball is verified by nvm against `SHASUMS256.txt`, and the Claude
   Code binary by its installer against a signed release manifest. Neither is
   listed in `checksums.txt` for that reason.
+
+One thing is deliberately not pinned: the version of the `oidc-login` plugin.
+krew resolves a plugin from its index at the moment of the build and has no flag
+for requesting a particular version, so the plugin moves when the index moves.
+The archive is still verified, by krew, against the SHA-256 in the index
+manifest. krew itself is pinned in `versions.env` like everything else, and the
+resolved plugin version is printed by `kubectl krew list` in the build log and by
+`devbox-help` in the running container.
 
 `make check-upstream` reports which pins have newer releases. Bumping is always
 a manual edit to `versions.env` followed by `make update-versions`, so a version

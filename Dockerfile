@@ -8,7 +8,10 @@
 # the Claude Code binary, and the Node release tarballs are all glibc-only.
 #
 # Everything downloaded from upstream is pinned in versions.env and verified
-# against checksums.txt (or, for the AWS CLI, a GPG signature).
+# against checksums.txt (or, for the AWS CLI, a GPG signature). The exception is
+# a plugin installed through krew: its version comes from the krew-index at the
+# moment of the build, and krew verifies it against the sha256 the index
+# publishes rather than one recorded here.
 
 ARG DEBIAN_TAG=13-slim
 
@@ -18,8 +21,10 @@ ARG DEBIAN_TAG=13-slim
 # ---------------------------------------------------------------------------
 FROM debian:${DEBIAN_TAG} AS fetch
 
+# git is here for krew, which clones the krew-index rather than fetching it over
+# HTTP. It stays in this stage; the runtime image installs its own git from apt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg unzip xz-utils \
+      ca-certificates curl git gnupg unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Extra roots needed to reach upstream download hosts through an intercepting
@@ -69,6 +74,8 @@ fetch "k9s-${TARGETARCH}" \
   "https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/k9s_Linux_${TARGETARCH}.tar.gz"
 fetch "kargo-${TARGETARCH}" \
   "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${TARGETARCH}"
+fetch "krew-${TARGETARCH}" \
+  "https://github.com/kubernetes-sigs/krew/releases/download/v${KREW_VERSION}/krew-linux_${TARGETARCH}.tar.gz"
 fetch "jj-${TARGETARCH}" \
   "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-${RARCH}-unknown-linux-musl.tar.gz"
 fetch "nats-${TARGETARCH}" \
@@ -159,6 +166,37 @@ install -m 0755 "/dl/rustup-${TARGETARCH}" /tools/rustup-init
 unpack nvm
 mkdir -p /tools/nvm
 cp -a nvm-*/. /tools/nvm/
+EOF
+
+# krew, the kubectl plugin manager, plus the oidc-login plugin.
+#
+# krew bootstraps itself: the binary out of the tarball is run once as
+# `install krew`, which lays down the plugin store, the receipts, a clone of the
+# krew-index, and the kubectl-krew symlink under $KREW_ROOT. After that it is
+# managed as a plugin like any other, and `kubectl krew install` handles the
+# rest. The symlinks it writes into $KREW_ROOT/bin are absolute, so this has to
+# run against the path the runtime image will use rather than a staging
+# directory; /usr/local/krew, outside $HOME like the other toolchain roots.
+#
+# Unlike everything in checksums.txt, the plugin version is not pinned: krew
+# resolves it from the index at the moment of the build and has no flag for
+# asking after a particular version. The archive is still verified, against the
+# sha256 in the index manifest, and `kubectl krew upgrade oidc-login` moves it
+# afterwards. Only krew itself is pinned, in versions.env.
+ENV KREW_ROOT=/usr/local/krew
+RUN <<'EOF'
+set -eu
+d=/tmp/x/krew
+mkdir -p "$d"
+tar -xzf "/dl/krew-${TARGETARCH}" -C "$d"
+"$d/krew-linux_${TARGETARCH}" install krew
+# On PATH so that krew stops warning that its plugins are unreachable, and so
+# it manages itself from here on exactly as it will in the running container.
+export PATH="${KREW_ROOT}/bin:${PATH}"
+kubectl-krew install oidc-login
+# The build log is the only place the resolved plugin version is written down.
+kubectl-krew list
+rm -rf "$d"
 EOF
 
 # AWS CLI v2 is verified against its published GPG signature rather than a
@@ -403,6 +441,11 @@ COPY --from=rust --chown=${USERNAME} /usr/local/rustup  /usr/local/rustup
 COPY --from=rust --chown=${USERNAME} /usr/local/cargo   /usr/local/cargo
 COPY --from=node --chown=${USERNAME} /usr/local/nvm     /usr/local/nvm
 
+# Same reasoning: `kubectl krew install`, `krew upgrade`, and `krew update` all
+# write into $KREW_ROOT, so the container user owns it. The tree already carries
+# the index clone and the plugins installed at build time.
+COPY --from=fetch --chown=${USERNAME} /usr/local/krew   /usr/local/krew
+
 ENV TZ=US/Central \
     LANG=C.UTF-8 \
     GOROOT=/usr/local/go \
@@ -410,10 +453,11 @@ ENV TZ=US/Central \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     NVM_DIR=/usr/local/nvm \
+    KREW_ROOT=/usr/local/krew \
     NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
-    PATH=/home/${USERNAME}/.local/bin:/home/${USERNAME}/go/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/nvm/current/bin:/opt/dbcli/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    PATH=/home/${USERNAME}/.local/bin:/home/${USERNAME}/go/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/nvm/current/bin:/usr/local/krew/bin:/opt/dbcli/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # A devcontainer terminal is an interactive non-login shell, which reads
 # /etc/bash.bashrc and never touches /etc/profile.d. Source it from there too,

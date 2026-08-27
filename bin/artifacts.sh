@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-TOOLS=(go rustup kubectl stern k9s kargo jj nats hurl neovim docker buildx compose)
+TOOLS=(go rustup kubectl stern k9s kargo krew jj nats hurl neovim docker buildx compose)
 # shellcheck disable=SC2034
 NOARCH_TOOLS=(nvm)
 # shellcheck disable=SC2034
@@ -48,6 +48,8 @@ artifact_url() {
     kargo)
       # Published as a bare binary, not an archive.
       echo "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${arch}" ;;
+    krew)
+      echo "https://github.com/kubernetes-sigs/krew/releases/download/v${KREW_VERSION}/krew-linux_${arch}.tar.gz" ;;
     jj)
       # musl only: upstream publishes no glibc Linux build, and the static
       # binary runs unchanged on Debian.

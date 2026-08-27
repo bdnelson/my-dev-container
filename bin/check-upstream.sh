@@ -72,6 +72,7 @@ report kubectl  "$KUBECTL_VERSION"  "$(curl -fsSL https://dl.k8s.io/release/stab
 report stern    "$STERN_VERSION"    "$(gh_latest stern/stern)"
 report k9s      "$K9S_VERSION"      "$(gh_latest derailed/k9s)"
 report kargo    "$KARGO_VERSION"    "$(gh_latest akuity/kargo)"
+report krew     "$KREW_VERSION"     "$(gh_latest kubernetes-sigs/krew)"
 report jj       "$JJ_VERSION"       "$(gh_latest jj-vcs/jj)"
 report neovim   "$NEOVIM_VERSION"   "$(gh_latest neovim/neovim)"
 report hurl     "$HURL_VERSION"     "$(gh_latest Orange-OpenSource/hurl)"

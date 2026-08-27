@@ -32,6 +32,24 @@ ver stern stern --version
 ver k9s k9s version -s
 ver kargo kargo version --client
 
+# krew reports itself as a table rather than a version line, so it does not fit
+# `ver`. Its plugins come from krew's receipts: `krew list` prints names with no
+# version column, and `krew info` reports the version the index currently offers
+# rather than the one actually installed.
+if command -v kubectl-krew >/dev/null 2>&1; then
+  printf '  %-16s %s\n' krew \
+    "$(kubectl-krew version 2>/dev/null | awk '$1 == "GitTag" { print $2 }')"
+  for _receipt in "${KREW_ROOT:-/usr/local/krew}"/receipts/*.yaml; do
+    [ -e "$_receipt" ] || continue
+    _plugin=$(basename "$_receipt" .yaml)
+    [ "$_plugin" = krew ] && continue
+    printf '  %-16s %s\n' "$_plugin" \
+      "$(awk '$1 == "version:" { print $2; exit }' "$_receipt")"
+  done
+else
+  printf '  %-16s missing\n' krew
+fi
+
 echo
 echo "Version control"
 ver git git --version
@@ -77,6 +95,14 @@ Idioms
                 colocate an existing git checkout with: jj git init --colocate
   Kargo         kargo login https://KARGO-HOST --sso
                 kargo get stages --project PROJECT
+  krew          kubectl krew search TERM / kubectl krew install PLUGIN
+                plugins live in $KREW_ROOT (/usr/local/krew/bin, on PATH) and
+                are yours to add without sudo; kubectl krew upgrade moves them
+  OIDC login    kubectl oidc-login setup --oidc-issuer-url=URL --oidc-client-id=ID
+                prints the kubeconfig stanza to paste; after that kubectl calls
+                the plugin itself, as a credential exec plugin, and the browser
+                flow happens on demand. Clear cached tokens with:
+                kubectl oidc-login clean
 
   Postgres      pgcli postgresql://USER@HOST:5432/DB
   MySQL         mycli -h HOST -u USER -D DB

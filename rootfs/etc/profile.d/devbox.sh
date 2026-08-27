@@ -18,6 +18,7 @@ devbox_path_prepend() {
 for _devbox_dir in \
   /opt/dbcli/bin \
   "${NVM_DIR:-/usr/local/nvm}/current/bin" \
+  "${KREW_ROOT:-/usr/local/krew}/bin" \
   /usr/local/go/bin \
   "${CARGO_HOME:-/usr/local/cargo}/bin" \
   "${HOME:-/home/dev}/go/bin" \
