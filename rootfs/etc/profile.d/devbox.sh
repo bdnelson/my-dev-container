@@ -64,12 +64,20 @@ if [ -n "${PS1:-}" ] && [ -z "${_devbox_interactive_done:-}" ]; then
     complete -o default -F __start_kubectl k
   fi
 
+  # vi line editing, for the same reason nvim is aliased over vi: readline's
+  # default emacs bindings are the odd ones out here. Interactive only, since a
+  # script that sources this has no line editor to configure.
+  set -o vi
+
   PS1='\[\e[35m\]\u@devbox\[\e[0m\]:\w\$ '
   echo "my-dev-container — run 'devbox-help' for the installed tools and idioms."
 fi
 
-if [ -f ${HOME:-/home/dev}/.config/k8s/kubeconfig ]; then 
-	export KUBECONFIG=${HOME:-/home/dev}/.config/k8s/kubeconfig
+# The kubeconfig the host mounts in, when it is there. Deliberately outside the
+# interactive guard above: KUBECONFIG is exported, so a `devcontainer exec` that
+# never gets a $PS1 needs it just as much as a terminal does.
+_devbox_kubeconfig="${HOME:-/home/dev}/.config/k8s/kubeconfig"
+if [ -f "$_devbox_kubeconfig" ]; then
+  export KUBECONFIG="$_devbox_kubeconfig"
 fi
-
-set -o vi
+unset _devbox_kubeconfig
