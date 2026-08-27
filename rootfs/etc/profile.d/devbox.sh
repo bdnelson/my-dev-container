@@ -48,6 +48,7 @@ alias kd='kubectl describe'
 alias kl='kubectl logs'
 alias vi=nvim
 alias vim=nvim
+alias gs='git shorty'
 
 # An interactive login shell reaches this file twice: once through
 # /etc/profile.d, and again because Debian's /etc/profile also sources
@@ -66,3 +67,9 @@ if [ -n "${PS1:-}" ] && [ -z "${_devbox_interactive_done:-}" ]; then
   PS1='\[\e[35m\]\u@devbox\[\e[0m\]:\w\$ '
   echo "my-dev-container — run 'devbox-help' for the installed tools and idioms."
 fi
+
+if [ -f ${HOME:-/home/dev}/.config/k8s/kubeconfig ]; then 
+	export KUBECONFIG=${HOME:-/home/dev}/.config/k8s/kubeconfig
+fi
+
+set -o vi
