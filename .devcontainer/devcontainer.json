@@ -9,12 +9,33 @@
     "dockerfile": "../Dockerfile",
     "context": "..",
     "args": {
-      // Match these to the host user when bind mounts would otherwise leave
-      // root-owned files in the workspace. Docker Desktop on macOS maps uids
-      // for you, so the defaults are fine there.
+      // The container user's uid/gid have to match the host user's. Bind mounts
+      // carry the host's numeric ownership straight through, so a mismatch
+      // makes every file in the workspace look like it belongs to someone else:
+      // git rejects the repository with "detected dubious ownership", and
+      // anything the container writes lands owned by the wrong user on the host.
+      //
+      // Docker Desktop's old osxfs remapped ownership on the way through, which
+      // is why this used to be a Linux-only concern; VirtioFS and gRPC-FUSE do
+      // not, so macOS needs it set as well.
+      //
+      // Rather than pin one person's numbers here, take them from the host
+      // environment and fall back to the image defaults. Export these where
+      // every shell will see them -- ~/.zshenv, not ~/.zshrc -- because a
+      // runtime started outside a login shell inherits nothing else:
+      //
+      //   echo "export HOST_UID=$(id -u)" >> ~/.zshenv
+      //   echo "export HOST_GID=$(id -g)" >> ~/.zshenv
+      //
+      // $UID and $EUID are shell variables and are not exported, so they cannot
+      // be read here; the names have to be ones you export yourself.
+      //
+      // On macOS the primary group is normally staff (gid 20), which collides
+      // with dialout in Debian; the Dockerfile joins the existing group in that
+      // case rather than failing the build.
       "USERNAME": "dev",
-      "USER_UID": "1000",
-      "USER_GID": "1000"
+      "USER_UID": "${localEnv:HOST_UID:1000}",
+      "USER_GID": "${localEnv:HOST_GID:1000}"
     }
   },
 
@@ -48,26 +69,42 @@
     "source=${localEnv:HOME}/.kube,target=/home/dev/.kube,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.aws,target=/home/dev/.aws,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude,target=/home/dev/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.git,target=/home/dev/.git,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitignore,target=/home/dev/.gitignore,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/nvim,target=/home/dev/.config/nvim,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/k8s,target=/home/dev/.config/k8s,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/jj,target=/home/dev/.config/jj,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/git,target=/home/dev/.config/git,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/kargo,target=/home/dev/.config/kargo,type=bind,consistency=cached",
 
     // Shell history survives a rebuild. See HISTFILE in containerEnv.
     "source=my-dev-container-history,target=/commandhistory,type=volume"
   ],
 
   "containerEnv": {
-    "TZ": "US/Eastern",
+    "TZ": "US/Central",
     "HISTFILE": "/commandhistory/.bash_history"
   },
 
+  // A Linux host rewrites the container user's uid/gid to match the local user
+  // here, which would make the build args above redundant. It is a no-op on
+  // macOS, so the args carry the mapping instead.
+  "updateRemoteUserUID": true,
   "remoteUser": "dev",
+  "containerUser": "dev",
 
-  // Both of these reconcile things that are only knowable at run time: the
-  // socket's group ownership comes from the host, and the proxy root comes from
-  // the mount above. The image entrypoint also runs init-ca-certs, but a
-  // devcontainer runtime may replace the entrypoint, so it is repeated here.
-  // Running it twice is harmless.
+  // These reconcile things that are only knowable at run time: the socket's
+  // group ownership comes from the host, the proxy root comes from the mount
+  // above, and the history volume keeps whatever ownership it was created with,
+  // which is stale after the uid in the build args changes. The image
+  // entrypoint also runs init-ca-certs, but a devcontainer runtime may replace
+  // the entrypoint, so it is repeated here. Running it twice is harmless.
   "postStartCommand": {
     "docker-socket": "sudo /usr/local/bin/init-docker-socket",
-    "ca-certs": "sudo /usr/local/bin/init-ca-certs"
+    "ca-certs": "sudo /usr/local/bin/init-ca-certs",
+    "history": "sudo chown -R \"$(id -u):$(id -g)\" /commandhistory"
   },
 
   "customizations": {

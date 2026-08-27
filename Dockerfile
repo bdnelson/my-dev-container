@@ -354,18 +354,41 @@ RUN mkdir -p /usr/local/share/ca-certificates/injected
 # a new layer, which costs the better part of a gigabyte for the Rust and Node
 # trees alone.
 #
-# The uid/gid are build args so they can be matched to the host user when bind
-# mounts would otherwise land root-owned files in the workspace.
+# The uid/gid are build args so they can be matched to the host user; a bind
+# mount carries the host's numeric ownership through unchanged, so a mismatch
+# leaves the workspace looking foreign to the container user. The devcontainer
+# definition feeds these from $HOST_UID/$HOST_GID on the host.
+#
+# The args are re-defaulted here because a devcontainer runtime that does not
+# understand the `${localEnv:VAR:default}` form passes an empty string rather
+# than omitting the arg, and an empty string overrides the ARG default. The
+# heredoc body is not touched by the Dockerfile parser, so the shell sees the
+# arg as an environment variable and `:-` still applies.
+#
+# A host gid may already be taken in Debian -- macOS staff is gid 20, which is
+# dialout here -- so the user joins the existing group in that case instead of
+# failing the build. A collision on the uid is fatal: there is no safe way to
+# hand an existing account's uid to a new user.
 RUN <<EOF
 set -eu
-groupadd --gid ${USER_GID} ${USERNAME}
-useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash ${USERNAME}
+uid=${USER_UID:-1000}
+gid=${USER_GID:-1000}
+if getent passwd "$uid" >/dev/null; then
+  echo "uid $uid is already used by $(getent passwd "$uid" | cut -d: -f1)" >&2
+  exit 1
+fi
+if getent group "$gid" >/dev/null; then
+  echo "gid $gid already exists as $(getent group "$gid" | cut -d: -f1); joining it"
+else
+  groupadd --gid "$gid" ${USERNAME}
+fi
+useradd --uid "$uid" --gid "$gid" --create-home --shell /bin/bash ${USERNAME}
 echo "${USERNAME} ALL=(root) NOPASSWD:ALL" >/etc/sudoers.d/${USERNAME}
 chmod 0440 /etc/sudoers.d/${USERNAME}
 # /commandhistory is a named-volume mount point (see devcontainer.json). Docker
 # creates a missing mount point root-owned, so it has to exist here first.
 mkdir -p /home/${USERNAME}/go/bin /home/${USERNAME}/.local/bin /home/${USERNAME}/.kube /commandhistory
-chown -R ${USER_UID}:${USER_GID} /home/${USERNAME} /commandhistory
+chown -R "$uid:$gid" /home/${USERNAME} /commandhistory
 EOF
 
 # Read-only at runtime, so these stay root-owned.
@@ -376,11 +399,11 @@ COPY rootfs/ /
 # Written to at runtime by `cargo install`, `rustup toolchain add`, and
 # `nvm install`, so they belong to the container user. They live outside $HOME
 # so that mounting a volume over the home directory cannot hide them.
-COPY --from=rust --chown=${USER_UID}:${USER_GID} /usr/local/rustup  /usr/local/rustup
-COPY --from=rust --chown=${USER_UID}:${USER_GID} /usr/local/cargo   /usr/local/cargo
-COPY --from=node --chown=${USER_UID}:${USER_GID} /usr/local/nvm     /usr/local/nvm
+COPY --from=rust --chown=${USERNAME} /usr/local/rustup  /usr/local/rustup
+COPY --from=rust --chown=${USERNAME} /usr/local/cargo   /usr/local/cargo
+COPY --from=node --chown=${USERNAME} /usr/local/nvm     /usr/local/nvm
 
-ENV TZ=US/Eastern \
+ENV TZ=US/Central \
     LANG=C.UTF-8 \
     GOROOT=/usr/local/go \
     GOPATH=/home/${USERNAME}/go \
@@ -396,7 +419,6 @@ ENV TZ=US/Eastern \
 # /etc/bash.bashrc and never touches /etc/profile.d. Source it from there too,
 # or nvm, the aliases, and the banner only appear under `bash -l`.
 RUN echo '. /etc/profile.d/devbox.sh' >> /etc/bash.bashrc
-RUN echo 'set -o vi' >> /etc/bash.bashrc
 
 # Capturing as a non-root user needs the capability on the binary. NET_RAW
 # alone, deliberately: a file capability that is not in the container's bounding

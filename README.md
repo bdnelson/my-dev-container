@@ -74,10 +74,41 @@ make shell      # throwaway container with this repo mounted at /work
 
 ### Host integration
 
+The container user's uid and gid have to match the host user's. A bind mount
+carries the host's numeric ownership through unchanged, so a mismatch makes the
+workspace look like it belongs to someone else from inside the container:
+`git status` fails with "detected dubious ownership in repository", and anything
+the container writes comes back to the host owned by the wrong user. This is no
+longer a Linux-only concern -- Docker Desktop's old osxfs remapped ownership on
+the way through, but VirtioFS and gRPC-FUSE do not.
+
+So that the definition stays usable by anyone, the `USER_UID` and `USER_GID`
+build args read `HOST_UID` and `HOST_GID` from the host environment and fall
+back to 1000 when neither is set. Export them once:
+
+```sh
+echo "export HOST_UID=$(id -u)" >> ~/.zshenv
+echo "export HOST_GID=$(id -g)" >> ~/.zshenv
+```
+
+`~/.zshenv` rather than `~/.zshrc`, because a devcontainer runtime is not
+necessarily started from an interactive login shell and would inherit nothing
+from one that is. `$UID` and `$EUID` cannot be used directly: they are shell
+variables, not exported, so the devcontainer runtime cannot see them. Confirm
+what was substituted with `devcontainer read-configuration --workspace-folder .`
+before a rebuild, or `id -u` inside the running container afterwards.
+
+The fallback is silent, so an unset `HOST_UID` on a host whose uid is not 1000
+brings the ownership problem back. On a Linux host `updateRemoteUserUID` covers
+that case anyway by rewriting the user at run time. On macOS the primary group
+is usually staff (gid 20), which is already dialout in Debian; the Dockerfile
+joins the existing group in that case rather than failing the build.
+
 The definition bind-mounts `/var/run/docker.sock` so the container's docker CLI
-drives the host daemon. It also mounts `~/.kube`, `~/.aws`, and `~/.claude` from
-the host; remove any of those from `mounts` if you would rather keep them out of
-the container. Bash history is kept in a named volume so it survives a rebuild.
+drives the host daemon. It also mounts `~/.kube`, `~/.aws`, `~/.claude`,
+`~/.ssh`, and the `nvim`, `jj`, `git`, and `k8s` directories under
+`~/.config` from the host; remove any of those from `mounts` if you would rather
+keep them out of the container. Bash history is kept in a named volume so it survives a rebuild.
 
 The socket's group ownership comes from the host and is not knowable at build
 time, so `postStartCommand` runs `sudo init-docker-socket` to reconcile it. Run
