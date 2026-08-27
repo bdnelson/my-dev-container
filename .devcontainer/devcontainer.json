@@ -48,6 +48,10 @@
     "--init"
   ],
 
+  // Tilt's web UI. VS Code discovers listening ports on its own, but the
+  // devcontainer CLI does not, so name it here for both.
+  "forwardPorts": [10350],
+
   "mounts": [
     // docker-outside-of-docker: the CLI in this image drives the host daemon.
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",

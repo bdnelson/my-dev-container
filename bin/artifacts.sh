@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-TOOLS=(go rustup kubectl stern k9s kargo krew jj nats hurl neovim docker buildx compose)
+TOOLS=(go rustup kubectl stern k9s kargo krew tilt jj nats hurl neovim docker buildx compose)
 # shellcheck disable=SC2034
 NOARCH_TOOLS=(nvm)
 # shellcheck disable=SC2034
@@ -50,6 +50,13 @@ artifact_url() {
       echo "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${arch}" ;;
     krew)
       echo "https://github.com/kubernetes-sigs/krew/releases/download/v${KREW_VERSION}/krew-linux_${arch}.tar.gz" ;;
+    tilt)
+      # Tilt's asset names pair x86_64 with plain arm64, the same spelling
+      # neovim uses, so neither the Go nor the Rust form covers both.
+      case "$arch" in
+        amd64) echo "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" ;;
+        arm64) echo "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.arm64.tar.gz" ;;
+      esac ;;
     jj)
       # musl only: upstream publishes no glibc Linux build, and the static
       # binary runs unchanged on Debian.

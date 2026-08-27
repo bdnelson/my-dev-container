@@ -31,6 +31,7 @@ CHECKS=(
   "kubectl-oidc_login --version"
   "kubectl-ctx --help"
   "kubectl-ns --help"
+  "tilt version"
   "docker --version"
   "docker buildx version"
   "docker compose version"

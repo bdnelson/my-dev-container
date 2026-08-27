@@ -49,9 +49,12 @@ RUN <<'EOF'
 set -eu
 . ./versions.env
 
+# RARCH is the Rust/uname spelling. MIXED_ARCH is the x86_64-with-plain-arm64
+# pairing that neovim and tilt both use in their asset names, which neither the
+# Go nor the Rust spelling covers on its own.
 case "${TARGETARCH}" in
-  amd64) RARCH=x86_64; NVIM_ARCH=x86_64 ;;
-  arm64) RARCH=aarch64; NVIM_ARCH=arm64 ;;
+  amd64) RARCH=x86_64; MIXED_ARCH=x86_64 ;;
+  arm64) RARCH=aarch64; MIXED_ARCH=arm64 ;;
   *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;;
 esac
 
@@ -76,6 +79,8 @@ fetch "kargo-${TARGETARCH}" \
   "https://github.com/akuity/kargo/releases/download/v${KARGO_VERSION}/kargo-linux-${TARGETARCH}"
 fetch "krew-${TARGETARCH}" \
   "https://github.com/kubernetes-sigs/krew/releases/download/v${KREW_VERSION}/krew-linux_${TARGETARCH}.tar.gz"
+fetch "tilt-${TARGETARCH}" \
+  "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.${MIXED_ARCH}.tar.gz"
 fetch "jj-${TARGETARCH}" \
   "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-${RARCH}-unknown-linux-musl.tar.gz"
 fetch "nats-${TARGETARCH}" \
@@ -83,7 +88,7 @@ fetch "nats-${TARGETARCH}" \
 fetch "hurl-${TARGETARCH}" \
   "https://github.com/Orange-OpenSource/hurl/releases/download/${HURL_VERSION}/hurl-${HURL_VERSION}-${RARCH}-unknown-linux-gnu.tar.gz"
 fetch "neovim-${TARGETARCH}" \
-  "https://github.com/neovim/neovim/releases/download/v${NEOVIM_VERSION}/nvim-linux-${NVIM_ARCH}.tar.gz"
+  "https://github.com/neovim/neovim/releases/download/v${NEOVIM_VERSION}/nvim-linux-${MIXED_ARCH}.tar.gz"
 fetch "docker-${TARGETARCH}" \
   "https://download.docker.com/linux/static/stable/${RARCH}/docker-${DOCKER_VERSION}.tgz"
 fetch "buildx-${TARGETARCH}" \
@@ -137,6 +142,10 @@ install -m 0755 k9s /out/usr/local/bin/k9s
 
 # A bare binary, so there is nothing to unpack.
 install -m 0755 "/dl/kargo-${TARGETARCH}" /out/usr/local/bin/kargo
+
+# Same shape as the jj tarball below: licence and readme alongside the binary.
+unpack tilt
+install -m 0755 tilt /out/usr/local/bin/tilt
 
 # The tarball carries the licence and readme alongside the binary; only the
 # binary is kept.

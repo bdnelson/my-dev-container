@@ -31,6 +31,7 @@ ver kubectl kubectl version --client=true
 ver stern stern --version
 ver k9s k9s version -s
 ver kargo kargo version --client
+ver tilt tilt version
 
 # krew reports itself as a table rather than a version line, so it does not fit
 # `ver`. Its plugins come from krew's receipts: `krew list` prints names with no
@@ -95,6 +96,10 @@ Idioms
                 colocate an existing git checkout with: jj git init --colocate
   Kargo         kargo login https://KARGO-HOST --sso
                 kargo get stages --project PROJECT
+  Tilt          tilt up / tilt down / tilt logs   (Tiltfile in the repo root)
+                the UI is served on 10350, which devcontainer.json forwards;
+                it drives the host docker daemon and the current kube context,
+                so check kubectl ctx before starting it.
   krew          kubectl krew search TERM / kubectl krew install PLUGIN
                 plugins live in $KREW_ROOT (/usr/local/krew/bin, on PATH) and
                 are yours to add without sudo; kubectl krew upgrade moves them

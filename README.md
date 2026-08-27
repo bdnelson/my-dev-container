@@ -21,7 +21,7 @@ CI. See [Corporate proxy](#corporate-proxy).
 | Area | Tools |
 | --- | --- |
 | Languages | Go, Rust (rustup, cargo, clippy, rustfmt, rust-analyzer, rust-src), Node via nvm |
-| Kubernetes | kubectl, k9s, stern, kargo, krew (with the oidc-login, ctx, and ns plugins) |
+| Kubernetes | kubectl, k9s, stern, kargo, tilt, krew (with the oidc-login, ctx, and ns plugins) |
 | Containers | docker CLI, buildx, compose (against the host daemon) |
 | Version control | git, jj (Jujutsu) |
 | HTTP | curl, wget, hurl, hurlfmt |
