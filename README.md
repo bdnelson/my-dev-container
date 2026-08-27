@@ -21,7 +21,7 @@ CI. See [Corporate proxy](#corporate-proxy).
 | Area | Tools |
 | --- | --- |
 | Languages | Go, Rust (rustup, cargo, clippy, rustfmt, rust-analyzer, rust-src), Node via nvm |
-| Kubernetes | kubectl, k9s, stern, kargo, krew (with the oidc-login plugin) |
+| Kubernetes | kubectl, k9s, stern, kargo, krew (with the oidc-login, ctx, and ns plugins) |
 | Containers | docker CLI, buildx, compose (against the host daemon) |
 | Version control | git, jj (Jujutsu) |
 | HTTP | curl, wget, hurl, hurlfmt |
@@ -193,13 +193,13 @@ during the build:
   Code binary by its installer against a signed release manifest. Neither is
   listed in `checksums.txt` for that reason.
 
-One thing is deliberately not pinned: the version of the `oidc-login` plugin.
-krew resolves a plugin from its index at the moment of the build and has no flag
-for requesting a particular version, so the plugin moves when the index moves.
-The archive is still verified, by krew, against the SHA-256 in the index
-manifest. krew itself is pinned in `versions.env` like everything else, and the
-resolved plugin version is printed by `kubectl krew list` in the build log and by
-`devbox-help` in the running container.
+One thing is deliberately not pinned: the versions of the plugins krew installs
+(`oidc-login`, `ctx`, `ns`). krew resolves a plugin from its index at the moment
+of the build and has no flag for requesting a particular version, so a plugin
+moves when the index moves. The archives are still verified, by krew, against
+the SHA-256 in the index manifest. krew itself is pinned in `versions.env` like
+everything else, and the resolved versions are printed by `kubectl krew list` in
+the build log and by `devbox-help` in the running container.
 
 `make check-upstream` reports which pins have newer releases. Bumping is always
 a manual edit to `versions.env` followed by `make update-versions`, so a version

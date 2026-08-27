@@ -9,8 +9,8 @@
 #
 # Everything downloaded from upstream is pinned in versions.env and verified
 # against checksums.txt (or, for the AWS CLI, a GPG signature). The exception is
-# a plugin installed through krew: its version comes from the krew-index at the
-# moment of the build, and krew verifies it against the sha256 the index
+# the plugins installed through krew: their versions come from the krew-index at
+# the moment of the build, and krew verifies each against the sha256 the index
 # publishes rather than one recorded here.
 
 ARG DEBIAN_TAG=13-slim
@@ -168,21 +168,24 @@ mkdir -p /tools/nvm
 cp -a nvm-*/. /tools/nvm/
 EOF
 
-# krew, the kubectl plugin manager, plus the oidc-login plugin.
+# krew, the kubectl plugin manager, plus the plugins installed through it:
+# oidc-login for OIDC cluster authentication, and ctx and ns, which are kubectx
+# and kubens under the names krew publishes them as.
 #
 # krew bootstraps itself: the binary out of the tarball is run once as
 # `install krew`, which lays down the plugin store, the receipts, a clone of the
 # krew-index, and the kubectl-krew symlink under $KREW_ROOT. After that it is
-# managed as a plugin like any other, and `kubectl krew install` handles the
-# rest. The symlinks it writes into $KREW_ROOT/bin are absolute, so this has to
-# run against the path the runtime image will use rather than a staging
-# directory; /usr/local/krew, outside $HOME like the other toolchain roots.
+# managed as a plugin like any other, and one `kubectl krew install` handles the
+# rest; naming the three plugins in a single invocation reads the index once.
+# The symlinks it writes into $KREW_ROOT/bin are absolute, so this has to run
+# against the path the runtime image will use rather than a staging directory;
+# /usr/local/krew, outside $HOME like the other toolchain roots.
 #
-# Unlike everything in checksums.txt, the plugin version is not pinned: krew
-# resolves it from the index at the moment of the build and has no flag for
-# asking after a particular version. The archive is still verified, against the
-# sha256 in the index manifest, and `kubectl krew upgrade oidc-login` moves it
-# afterwards. Only krew itself is pinned, in versions.env.
+# Unlike everything in checksums.txt, the plugin versions are not pinned: krew
+# resolves each one from the index at the moment of the build and has no flag
+# for asking after a particular version. The archives are still verified,
+# against the sha256 in the index manifest, and `kubectl krew upgrade` moves
+# them afterwards. Only krew itself is pinned, in versions.env.
 ENV KREW_ROOT=/usr/local/krew
 RUN <<'EOF'
 set -eu
@@ -193,8 +196,8 @@ tar -xzf "/dl/krew-${TARGETARCH}" -C "$d"
 # On PATH so that krew stops warning that its plugins are unreachable, and so
 # it manages itself from here on exactly as it will in the running container.
 export PATH="${KREW_ROOT}/bin:${PATH}"
-kubectl-krew install oidc-login
-# The build log is the only place the resolved plugin version is written down.
+kubectl-krew install oidc-login ctx ns
+# The build log is the only place the resolved plugin versions are written down.
 kubectl-krew list
 rm -rf "$d"
 EOF

@@ -23,10 +23,14 @@ CHECKS=(
   "k9s version -s"
   "kargo version --client"
   # The plugin binaries directly, so the reported label names the tool rather
-  # than kubectl three times over; kubectl's own dispatch to them is checked
-  # further down. krew's version is a table, hence the grep.
+  # than kubectl four times over; kubectl's own dispatch to them is checked
+  # further down. krew's version is a table, hence the grep. ctx and ns take no
+  # version flag at all, so --help stands in: it still has to load and run the
+  # binary, which is what would fail on a truncated or wrong-architecture one.
   "kubectl-krew version | grep GitTag"
   "kubectl-oidc_login --version"
+  "kubectl-ctx --help"
+  "kubectl-ns --help"
   "docker --version"
   "docker buildx version"
   "docker compose version"
@@ -175,7 +179,7 @@ echo "checking kubectl dispatches the krew-installed plugins"
 # krew's value is that `kubectl <plugin>` works, which needs $KREW_ROOT/bin on
 # PATH for kubectl's own discovery, not just for the shell.
 plugins=$(run 'kubectl plugin list 2>/dev/null')
-for plugin in kubectl-krew kubectl-oidc_login; do
+for plugin in kubectl-krew kubectl-oidc_login kubectl-ctx kubectl-ns; do
   if echo "$plugins" | grep -q "/usr/local/krew/bin/$plugin"; then
     printf '  ok    kubectl plugin list finds %s\n' "$plugin"
     pass=$((pass + 1))

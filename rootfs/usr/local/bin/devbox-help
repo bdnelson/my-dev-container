@@ -98,6 +98,10 @@ Idioms
   krew          kubectl krew search TERM / kubectl krew install PLUGIN
                 plugins live in $KREW_ROOT (/usr/local/krew/bin, on PATH) and
                 are yours to add without sudo; kubectl krew upgrade moves them
+  Contexts      kubectl ctx / kubectl ctx CONTEXT / kubectl ctx -   (kubectx)
+  Namespaces    kubectl ns / kubectl ns NAMESPACE / kubectl ns -    (kubens)
+                with no argument they list; - switches back to the previous one.
+                fzf is not installed, so neither offers an interactive picker.
   OIDC login    kubectl oidc-login setup --oidc-issuer-url=URL --oidc-client-id=ID
                 prints the kubeconfig stanza to paste; after that kubectl calls
                 the plugin itself, as a credential exec plugin, and the browser
