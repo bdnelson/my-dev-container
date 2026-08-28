@@ -110,6 +110,17 @@ drives the host daemon. It also mounts `~/.kube`, `~/.aws`, `~/.claude`,
 `~/.config` from the host; remove any of those from `mounts` if you would rather
 keep them out of the container. Bash history is kept in a named volume so it survives a rebuild.
 
+A bind mount whose source is missing is fatal, not ignored: the devcontainer CLI
+and the VS Code extension both start the container with `docker run --mount`,
+which -- unlike the older `-v` -- refuses to create the source path, so a host
+that has never configured, say, kargo fails with `bind source path does not
+exist`. Since `devcontainer.json` cannot make a mount conditional,
+`initializeCommand` runs `bin/init-devcontainer-mounts.sh` on the host first;
+it reads the mount list out of `devcontainer.json` and creates whatever is
+absent. Adding a `${localEnv:HOME}` mount needs no change there unless the
+source is a file rather than a directory, in which case add it to the script's
+`is_file` list.
+
 The socket's group ownership comes from the host and is not knowable at build
 time, so `postStartCommand` runs `sudo init-docker-socket` to reconcile it. Run
 that by hand if docker reports a permission error after attaching.
@@ -158,9 +169,10 @@ roots; the entrypoint runs `init-ca-certs`, which reads a PEM file, or a
 directory of them, from `/run/secrets/ca-certificates` (override with
 `$CA_CERT_SECRET`, or pass `$CA_CERT_PEM_B64` where no file can be mounted),
 splits it, validates it, and regenerates the trust store. `devcontainer.json`
-bind-mounts `~/.config/ca-certificates` read-only onto that path, and `make
-shell` mounts it when it exists. With nothing mounted the step is a no-op, so
-the same image works on and off the network. Run `sudo init-ca-certs` inside a
+bind-mounts `~/.config/ca-certificates` read-only onto that path, creating it
+empty if need be, and `make shell` mounts it when it exists. With an empty
+directory mounted the step is a no-op, so the same image works on and off the
+network. Run `sudo init-ca-certs` inside a
 running container after changing the source.
 
 Node, requests-based Python tools, and botocore each keep their own root list

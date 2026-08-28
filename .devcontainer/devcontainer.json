@@ -39,6 +39,14 @@
     }
   },
 
+  // Runs on the host before the container is created. `docker run --mount
+  // type=bind` fails outright when the source path does not exist -- only the
+  // older `-v` form creates it -- and devcontainer.json cannot make a mount
+  // conditional, so every host path in "mounts" below has to be there already.
+  // This creates the ones that are not, which is what lets the list stay
+  // uniform across hosts that have not configured every tool.
+  "initializeCommand": "bash ${localWorkspaceFolder}/bin/init-devcontainer-mounts.sh",
+
   "runArgs": [
     // tcpdump and mtr need these even though the binaries carry file
     // capabilities; the container has to be granted the capability first.
@@ -64,8 +72,9 @@
     //   security find-certificate -a -c "Zscaler" -p /Library/Keychains/System.keychain \
     //     > ~/.config/ca-certificates/zscaler-root.crt
     //
-    // An empty or absent directory is fine; the container then trusts only the
-    // public roots.
+    // An empty directory is fine; the container then trusts only the public
+    // roots. initializeCommand below creates it when it is absent, because a
+    // bind mount with a missing source aborts the container start.
     "source=${localEnv:HOME}/.config/ca-certificates,target=/run/secrets/ca-certificates,type=bind,readonly",
 
     // Host credentials and config. Remove any of these you would rather keep
@@ -82,6 +91,7 @@
     "source=${localEnv:HOME}/.config/jj,target=/home/dev/.config/jj,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/git,target=/home/dev/.config/git,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/kargo,target=/home/dev/.config/kargo,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/k9s,target=/home/dev/.config/k9s,type=bind,consistency=cached",
 
     // Shell history survives a rebuild. See HISTFILE in containerEnv.
     "source=my-dev-container-history,target=/commandhistory,type=volume"
