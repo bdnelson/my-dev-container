@@ -18,6 +18,11 @@ BUILD_ARGS = \
 CA_CERT_DIR   ?= $(HOME)/.config/ca-certificates
 CA_CERT_MOUNT  = $(if $(wildcard $(CA_CERT_DIR)),-v "$(CA_CERT_DIR):/run/secrets/ca-certificates:ro")
 
+# Linters used by `make lint`, installed per-checkout by `make lint-tools` so
+# they never collide with a host-wide install. Anything already on PATH still
+# wins for the tools that are not in here.
+LINT_TOOLS_DIR ?= $(CURDIR)/.tools/bin
+
 .PHONY: help
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -44,9 +49,16 @@ test: build ## Run the smoke test against the freshly built image
 	IMAGE=$(IMAGE):$(VERSION) ./bin/smoke-test.sh
 
 .PHONY: lint
+lint: export PATH := $(LINT_TOOLS_DIR):$(PATH)
 lint: ## Lint the Dockerfile and shell scripts
-	@command -v hadolint >/dev/null && hadolint Dockerfile || echo "hadolint not installed, skipping"
-	@command -v shellcheck >/dev/null && shellcheck bin/*.sh rootfs/usr/local/bin/* || echo "shellcheck not installed, skipping"
+	@if command -v hadolint >/dev/null; then hadolint Dockerfile; \
+	else echo "hadolint not installed, run 'make lint-tools'"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck bin/*.sh rootfs/usr/local/bin/*; \
+	else echo "shellcheck not installed, run 'make lint-tools'"; fi
+
+.PHONY: lint-tools
+lint-tools: ## Install hadolint and shellcheck into $(LINT_TOOLS_DIR)
+	./bin/install-lint-tools.sh "$(LINT_TOOLS_DIR)"
 
 .PHONY: scan
 scan: build ## Scan the built image for vulnerabilities

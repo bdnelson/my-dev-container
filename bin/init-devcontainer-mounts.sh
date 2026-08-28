@@ -33,6 +33,9 @@ is_file() {
 # Read the ${localEnv:HOME}-relative bind sources out of the mount list itself,
 # so this cannot drift from devcontainer.json. The pattern is anchored to the
 # opening quote, so the // comment lines in that block cannot match.
+# shellcheck disable=SC2016  # ${localEnv:HOME} is devcontainer.json's own placeholder, matched literally
+mount_source_pattern='s/^[[:space:]]*"source=\${localEnv:HOME}\/\([^,"]*\).*/\1/p'
+
 while IFS= read -r rel; do
   path="$HOME/$rel"
 
@@ -48,4 +51,4 @@ while IFS= read -r rel; do
   fi
 
   printf 'created %s\n' "$path"
-done < <(sed -n 's/^[[:space:]]*"source=\${localEnv:HOME}\/\([^,"]*\).*/\1/p' "$config")
+done < <(sed -n "$mount_source_pattern" "$config")

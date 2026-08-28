@@ -13,3 +13,6 @@
 /certs/*
 !/certs/.keep
 !/certs/README.md
+
+# Linters installed by bin/install-lint-tools.sh
+/.tools/
